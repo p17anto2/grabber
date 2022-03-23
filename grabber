@@ -1,0 +1,36 @@
+#!/bin/sh
+
+url_file="$HOME/.config/grabber/urls"
+hash_dir="$HOME/.config/grabber/hashes"
+ignored="$HOME/.config/grabber/ignored_patterns"
+
+# Create non existing config files 
+[ ! -d "$url_file" ] && touch "$url_file"
+[ ! -d "$hash_dir" ] && mkdir "$hash_dir"
+[ ! -e "$ignored" ] && touch "$ignored"
+
+if [ -r "$url_file" ]; then
+    while IFS= read -r url || [ -n "$url" ]; do
+        hashed_url="$(printf '%s' "$url" | md5sum - | sed -r 's/\s+-//' - )"
+        if [ -e "$hash_dir"/"$hashed_url" ]; then
+            # Download html and check the hashes
+            wget -qO /tmp/grabbed "$url"
+            grep -vif "$ignored" /tmp/grabbed > /tmp/greped
+            md5sum /tmp/greped > /tmp/grabbed_hash
+            md5sum --status --check /tmp/grabbed_hash "$hash_dir"/"$hashed_url" ||
+                (printf 'Site changed\n' &&
+                ntfy -b simplepush -t "Change in $url" send "See more:
+                              $url" &&
+                cp /tmp/grabbed_hash "$hash_dir"/"$hashed_url")
+        else
+            # Download html and store the hash
+            wget -qO /tmp/grabbed "$url"
+            grep -vif "$ignored" /tmp/grabbed > /tmp/greped
+            md5sum /tmp/greped > "$hash_dir"/"$hashed_url"
+        fi
+    done < "$url_file"
+fi
+
+[ -e /tmp/grabbed ] && rm /tmp/grabbed
+[ -e /tmp/greped ] && rm /tmp/greped
+[ -e /tmp/grabbed_hash ] && rm /tmp/grabbed_hash
